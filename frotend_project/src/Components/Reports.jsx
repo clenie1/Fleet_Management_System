@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
 
 function Reports() {
-  const [tripReport, setTripReport] = useState([]);
-  const [fuelReport, setFuelReport] = useState([]);
+  const [tripHistory, setTripHistory] = useState([]);
+  const [fuelSummary, setFuelSummary] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     fetchReports();
@@ -10,85 +12,493 @@ function Reports() {
 
   const fetchReports = async () => {
     try {
-      const [trips, fuel] = await Promise.all([
-        fetch("http://localhost:5000/api/reports/trip-history", { credentials: "include" }),
-        fetch("http://localhost:5000/api/reports/fuel-summary", { credentials: "include" }),
-      ]);
-      setTripReport(await trips.json());
-      setFuelReport(await fuel.json());
+      setLoading(true);
+      
+      const tripResponse = await fetch("http://localhost:5000/api/reports/trip-history", {
+        credentials: "include"
+      });
+      const tripData = await tripResponse.json();
+      
+      const fuelResponse = await fetch("http://localhost:5000/api/reports/fuel-summary", {
+        credentials: "include"
+      });
+      const fuelData = await fuelResponse.json();
+      
+      if (Array.isArray(tripData)) {
+        setTripHistory(tripData);
+      } else {
+        setTripHistory([]);
+      }
+      
+      if (Array.isArray(fuelData)) {
+        setFuelSummary(fuelData);
+      } else {
+        setFuelSummary([]);
+      }
+      
+      setError("");
     } catch (error) {
       console.error("Error fetching reports:", error);
+      setError("Failed to load reports. Please try again.");
+    } finally {
+      setLoading(false);
     }
   };
 
+  // Print Trip History Report
+  const printTripHistory = () => {
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Trip History Report</title>
+          <script src="https://cdn.tailwindcss.com"></script>
+          <style>
+            @media print {
+              body {
+                print-color-adjust: exact;
+                -webkit-print-color-adjust: exact;
+              }
+            }
+          </style>
+        </head>
+        <body class="bg-white p-8">
+          <div class="max-w-7xl mx-auto">
+            <!-- Header -->
+            <div class="text-center border-b-2 border-gray-300 pb-4 mb-6">
+              <h1 class="text-3xl font-bold text-gray-800">Fleet Management System</h1>
+              <h2 class="text-2xl font-semibold text-gray-600 mt-2">Trip History Report</h2>
+              <p class="text-gray-500 mt-2">Generated on: ${new Date().toLocaleString()}</p>
+            </div>
+
+            <!-- Table -->
+            <div class="overflow-x-auto">
+              <table class="min-w-full bg-white border border-gray-300">
+                <thead>
+                  <tr class="bg-green-600 text-white">
+                    <th class="py-2 px-4 border text-left">Driver Name</th>
+                    <th class="py-2 px-4 border text-left">Vehicle Plate</th>
+                    <th class="py-2 px-4 border text-left">Vehicle Type</th>
+                    <th class="py-2 px-4 border text-left">Departure Location</th>
+                    <th class="py-2 px-4 border text-left">Destination</th>
+                    <th class="py-2 px-4 border text-left">Departure Date</th>
+                    <th class="py-2 px-4 border text-left">Return Date</th>
+                    <th class="py-2 px-4 border text-left">Fuel Used</th>
+                    <th class="py-2 px-4 border text-left">Trip Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${tripHistory.map(trip => `
+                    <tr class="border-b hover:bg-gray-50">
+                      <td class="py-2 px-4 border">${trip.DriverName || "N/A"}</td>
+                      <td class="py-2 px-4 border">${trip.PlateNumber || "N/A"}</td>
+                      <td class="py-2 px-4 border">${trip.VehicleType || "N/A"}</td>
+                      <td class="py-2 px-4 border">${trip.DepartureLocation || "N/A"}</td>
+                      <td class="py-2 px-4 border">${trip.Destination || "N/A"}</td>
+                      <td class="py-2 px-4 border">${trip.DepartureDate ? new Date(trip.DepartureDate).toLocaleDateString() : "N/A"}</td>
+                      <td class="py-2 px-4 border">${trip.ReturnDate ? new Date(trip.ReturnDate).toLocaleDateString() : "Not returned"}</td>
+                      <td class="py-2 px-4 border">${trip.FuelUsed ? `${trip.FuelUsed} L` : "0.00 L"}</td>
+                      <td class="py-2 px-4 border">
+                        <span class="px-2 py-1 rounded text-xs font-semibold inline-block
+                          ${trip.TripStatus === "Completed" ? "bg-green-100 text-green-800" : 
+                            trip.TripStatus === "Ongoing" ? "bg-yellow-100 text-yellow-800" : 
+                            "bg-blue-100 text-blue-800"}">
+                          ${trip.TripStatus || "Scheduled"}
+                        </span>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Footer -->
+            <div class="text-center mt-6 pt-4 border-t border-gray-300 text-gray-500 text-sm">
+              <p>Total Trips: ${tripHistory.length} | Generated by Fleet Management System</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
+  };
+
+  // Print Fuel Summary Report
+  const printFuelSummary = () => {
+    const totalFuel = fuelSummary.reduce((sum, v) => sum + parseFloat(v.TotalFuelUsed || 0), 0).toFixed(2);
+    const totalTrips = fuelSummary.reduce((sum, v) => sum + (v.TotalTrips || 0), 0);
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Fuel Usage Summary Report</title>
+          <script src="https://cdn.tailwindcss.com"></script>
+          <style>
+            @media print {
+              body {
+                print-color-adjust: exact;
+                -webkit-print-color-adjust: exact;
+              }
+            }
+          </style>
+        </head>
+        <body class="bg-white p-8">
+          <div class="max-w-7xl mx-auto">
+            <!-- Header -->
+            <div class="text-center border-b-2 border-gray-300 pb-4 mb-6">
+              <h1 class="text-3xl font-bold text-gray-800">Fleet Management System</h1>
+              <h2 class="text-2xl font-semibold text-gray-600 mt-2">Fuel Usage Summary Report</h2>
+              <p class="text-gray-500 mt-2">Generated on: ${new Date().toLocaleString()}</p>
+            </div>
+
+            <!-- Table -->
+            <div class="overflow-x-auto">
+              <table class="min-w-full bg-white border border-gray-300">
+                <thead>
+                  <tr class="bg-blue-600 text-white">
+                    <th class="py-2 px-4 border text-left">Vehicle Plate</th>
+                    <th class="py-2 px-4 border text-left">Vehicle Type</th>
+                    <th class="py-2 px-4 border text-left">Total Trips</th>
+                    <th class="py-2 px-4 border text-left">Total Fuel Used (L)</th>
+                    <th class="py-2 px-4 border text-left">Average Fuel Used (L)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${fuelSummary.map(vehicle => `
+                    <tr class="border-b hover:bg-gray-50">
+                      <td class="py-2 px-4 border">${vehicle.PlateNumber || "N/A"}</td>
+                      <td class="py-2 px-4 border">${vehicle.VehicleType || "N/A"}</td>
+                      <td class="py-2 px-4 border">${vehicle.TotalTrips || 0}</td>
+                      <td class="py-2 px-4 border">${vehicle.TotalFuelUsed ? `${vehicle.TotalFuelUsed} L` : "0.00 L"}</td>
+                      <td class="py-2 px-4 border">${vehicle.AverageFuelUsed ? `${vehicle.AverageFuelUsed} L` : "0.00 L"}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Summary Stats -->
+            <div class="mt-6 p-4 bg-gray-100 rounded-lg">
+              <h3 class="font-bold text-lg mb-2">Summary Statistics</h3>
+              <div class="grid grid-cols-3 gap-4">
+                <div>
+                  <p class="text-gray-600">Total Vehicles</p>
+                  <p class="text-2xl font-bold text-blue-600">${fuelSummary.length}</p>
+                </div>
+                <div>
+                  <p class="text-gray-600">Total Trips</p>
+                  <p class="text-2xl font-bold text-green-600">${totalTrips}</p>
+                </div>
+                <div>
+                  <p class="text-gray-600">Total Fuel Used</p>
+                  <p class="text-2xl font-bold text-orange-600">${totalFuel} L</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="text-center mt-6 pt-4 border-t border-gray-300 text-gray-500 text-sm">
+              <p>Generated by Fleet Management System</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
+  };
+
+  // Print Both Reports
+  const printBothReports = () => {
+    const totalFuel = fuelSummary.reduce((sum, v) => sum + parseFloat(v.TotalFuelUsed || 0), 0).toFixed(2);
+    const totalTrips = fuelSummary.reduce((sum, v) => sum + (v.TotalTrips || 0), 0);
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Complete Fleet Reports</title>
+          <script src="https://cdn.tailwindcss.com"></script>
+          <style>
+            @media print {
+              body {
+                print-color-adjust: exact;
+                -webkit-print-color-adjust: exact;
+              }
+            }
+          </style>
+        </head>
+        <body class="bg-white p-8">
+          <div class="max-w-7xl mx-auto">
+            <!-- Header -->
+            <div class="text-center border-b-2 border-gray-300 pb-4 mb-6">
+              <h1 class="text-3xl font-bold text-gray-800">Fleet Management System</h1>
+              <h2 class="text-2xl font-semibold text-gray-600 mt-2">Complete Fleet Reports</h2>
+              <p class="text-gray-500 mt-2">Generated on: ${new Date().toLocaleString()}</p>
+            </div>
+
+            <!-- Trip History Section -->
+            <div class="mb-8">
+              <h3 class="text-xl font-bold text-gray-700 mb-4 border-l-4 border-green-500 pl-3">Trip History Report</h3>
+              <div class="overflow-x-auto">
+                <table class="min-w-full bg-white border border-gray-300">
+                  <thead>
+                    <tr class="bg-green-600 text-white">
+                      <th class="py-2 px-4 border text-left">Driver Name</th>
+                      <th class="py-2 px-4 border text-left">Vehicle Plate</th>
+                      <th class="py-2 px-4 border text-left">Departure Location</th>
+                      <th class="py-2 px-4 border text-left">Destination</th>
+                      <th class="py-2 px-4 border text-left">Departure Date</th>
+                      <th class="py-2 px-4 border text-left">Return Date</th>
+                      <th class="py-2 px-4 border text-left">Fuel Used</th>
+                      <th class="py-2 px-4 border text-left">Trip Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${tripHistory.map(trip => `
+                      <tr class="border-b">
+                        <td class="py-2 px-4 border">${trip.DriverName || "N/A"}</td>
+                        <td class="py-2 px-4 border">${trip.PlateNumber || "N/A"}</td>
+                        <td class="py-2 px-4 border">${trip.DepartureLocation || "N/A"}</td>
+                        <td class="py-2 px-4 border">${trip.Destination || "N/A"}</td>
+                        <td class="py-2 px-4 border">${trip.DepartureDate ? new Date(trip.DepartureDate).toLocaleDateString() : "N/A"}</td>
+                        <td class="py-2 px-4 border">${trip.ReturnDate ? new Date(trip.ReturnDate).toLocaleDateString() : "Not returned"}</td>
+                        <td class="py-2 px-4 border">${trip.FuelUsed ? `${trip.FuelUsed} L` : "0.00 L"}</td>
+                        <td class="py-2 px-4 border">${trip.TripStatus || "Scheduled"}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Fuel Summary Section -->
+            <div class="mb-8">
+              <h3 class="text-xl font-bold text-gray-700 mb-4 border-l-4 border-blue-500 pl-3">Fuel Usage Summary</h3>
+              <div class="overflow-x-auto">
+                <table class="min-w-full bg-white border border-gray-300">
+                  <thead>
+                    <tr class="bg-blue-600 text-white">
+                      <th class="py-2 px-4 border text-left">Vehicle Plate</th>
+                      <th class="py-2 px-4 border text-left">Vehicle Type</th>
+                      <th class="py-2 px-4 border text-left">Total Trips</th>
+                      <th class="py-2 px-4 border text-left">Total Fuel Used (L)</th>
+                      <th class="py-2 px-4 border text-left">Average Fuel Used (L)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${fuelSummary.map(vehicle => `
+                      <tr class="border-b">
+                        <td class="py-2 px-4 border">${vehicle.PlateNumber || "N/A"}</td>
+                        <td class="py-2 px-4 border">${vehicle.VehicleType || "N/A"}</td>
+                        <td class="py-2 px-4 border">${vehicle.TotalTrips || 0}</td>
+                        <td class="py-2 px-4 border">${vehicle.TotalFuelUsed ? `${vehicle.TotalFuelUsed} L` : "0.00 L"}</td>
+                        <td class="py-2 px-4 border">${vehicle.AverageFuelUsed ? `${vehicle.AverageFuelUsed} L` : "0.00 L"}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+              
+              <div class="mt-4 p-4 bg-gray-100 rounded-lg">
+                <div class="grid grid-cols-3 gap-4">
+                  <div>
+                    <p class="text-gray-600">Total Vehicles</p>
+                    <p class="text-2xl font-bold text-blue-600">${fuelSummary.length}</p>
+                  </div>
+                  <div>
+                    <p class="text-gray-600">Total Trips</p>
+                    <p class="text-2xl font-bold text-green-600">${totalTrips}</p>
+                  </div>
+                  <div>
+                    <p class="text-gray-600">Total Fuel Used</p>
+                    <p class="text-2xl font-bold text-orange-600">${totalFuel} L</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="text-center mt-6 pt-4 border-t border-gray-300 text-gray-500 text-sm">
+              <p>Total Trips: ${tripHistory.length} | Total Vehicles: ${fuelSummary.length}</p>
+              <p>Generated by Fleet Management System</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="text-xl text-gray-600">Loading reports...</div>
+      </div>
+    );
+  }
+
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">Reports</h1>
+    <div className="p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold text-gray-800">Reports</h1>
+        <div className="flex gap-3">
+          <button
+            onClick={printBothReports}
+            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-md"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+            </svg>
+            Print All Reports
+          </button>
+        </div>
+      </div>
+      
+      {error && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4">
+          {error}
+        </div>
+      )}
 
       {/* Trip History Report */}
-      <div className="mb-8">
-        <h2 className="text-xl font-bold mb-3">Trip History Report</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse border">
-            <thead className="bg-gray-200">
-              <tr>
-                <th className="border p-2">Driver Name</th>
-                <th className="border p-2">Vehicle Plate</th>
-                <th className="border p-2">Departure Location</th>
-                <th className="border p-2">Destination</th>
-                <th className="border p-2">Departure Date</th>
-                <th className="border p-2">Return Date</th>
-                <th className="border p-2">Fuel Used</th>
-                <th className="border p-2">Trip Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tripReport.map((trip, index) => (
-                <tr key={index}>
-                  <td className="border p-2">{trip.DriverName}</td>
-                  <td className="border p-2">{trip.PlateNumber}</td>
-                  <td className="border p-2">{trip.DepartureLocation}</td>
-                  <td className="border p-2">{trip.Destination}</td>
-                  <td className="border p-2">
-                    {new Date(trip.DepartureDate).toLocaleDateString()}
-                  </td>
-                  <td className="border p-2">
-                    {trip.ReturnDate ? new Date(trip.ReturnDate).toLocaleDateString() : "N/A"}
-                  </td>
-                  <td className="border p-2">{trip.FuelUsed} L</td>
-                  <td className="border p-2">{trip.TripStatus}</td>
+      <div className="bg-white rounded-lg shadow-md mb-8">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold text-gray-800">Trip History Report</h2>
+            <button
+              onClick={printTripHistory}
+              className="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg transition flex items-center gap-2 text-sm shadow"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+              </svg>
+              Print Trip History
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full bg-white border border-gray-200">
+              <thead className="bg-gray-50">
+                <tr className="bg-gray-100">
+                  <th className="py-3 px-4 border-b text-left text-sm font-semibold text-gray-700">Driver Name</th>
+                  <th className="py-3 px-4 border-b text-left text-sm font-semibold text-gray-700">Vehicle Plate</th>
+                  <th className="py-3 px-4 border-b text-left text-sm font-semibold text-gray-700">Vehicle Type</th>
+                  <th className="py-3 px-4 border-b text-left text-sm font-semibold text-gray-700">Departure Location</th>
+                  <th className="py-3 px-4 border-b text-left text-sm font-semibold text-gray-700">Destination</th>
+                  <th className="py-3 px-4 border-b text-left text-sm font-semibold text-gray-700">Departure Date</th>
+                  <th className="py-3 px-4 border-b text-left text-sm font-semibold text-gray-700">Return Date</th>
+                  <th className="py-3 px-4 border-b text-left text-sm font-semibold text-gray-700">Fuel Used</th>
+                  <th className="py-3 px-4 border-b text-left text-sm font-semibold text-gray-700">Trip Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {tripHistory.length > 0 ? (
+                  tripHistory.map((trip, index) => (
+                    <tr key={index} className="hover:bg-gray-50 transition-colors">
+                      <td className="py-2 px-4 border-b text-sm">{trip.DriverName || "N/A"}</td>
+                      <td className="py-2 px-4 border-b text-sm">{trip.PlateNumber || "N/A"}</td>
+                      <td className="py-2 px-4 border-b text-sm">{trip.VehicleType || "N/A"}</td>
+                      <td className="py-2 px-4 border-b text-sm">{trip.DepartureLocation || "N/A"}</td>
+                      <td className="py-2 px-4 border-b text-sm">{trip.Destination || "N/A"}</td>
+                      <td className="py-2 px-4 border-b text-sm">
+                        {trip.DepartureDate ? new Date(trip.DepartureDate).toLocaleDateString() : "N/A"}
+                      </td>
+                      <td className="py-2 px-4 border-b text-sm">
+                        {trip.ReturnDate ? new Date(trip.ReturnDate).toLocaleDateString() : "Not returned"}
+                      </td>
+                      <td className="py-2 px-4 border-b text-sm">
+                        {trip.FuelUsed ? `${trip.FuelUsed} L` : "0.00 L"}
+                      </td>
+                      <td className="py-2 px-4 border-b text-sm">
+                        <span className={`px-2 py-1 rounded-full text-xs font-semibold inline-block
+                          ${trip.TripStatus === "Completed" ? "bg-green-100 text-green-800" : 
+                            trip.TripStatus === "Ongoing" ? "bg-yellow-100 text-yellow-800" : 
+                            "bg-blue-100 text-blue-800"}`}>
+                          {trip.TripStatus || "Scheduled"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="9" className="py-8 px-4 text-center text-gray-500">
+                      No trip records found
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
       {/* Fuel Usage Summary */}
-      <div className="mb-8">
-        <h2 className="text-xl font-bold mb-3">Fuel Usage Summary</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse border">
-            <thead className="bg-gray-200">
-              <tr>
-                <th className="border p-2">Vehicle Plate</th>
-                <th className="border p-2">Vehicle Type</th>
-                <th className="border p-2">Total Trips</th>
-                <th className="border p-2">Total Fuel Used (L)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {fuelReport.map((vehicle, index) => (
-                <tr key={index}>
-                  <td className="border p-2">{vehicle.PlateNumber}</td>
-                  <td className="border p-2">{vehicle.VehicleType}</td>
-                  <td className="border p-2">{vehicle.TotalTrips}</td>
-                  <td className="border p-2">{vehicle.TotalFuelUsed} L</td>
+      <div className="bg-white rounded-lg shadow-md">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold text-gray-800">Fuel Usage Summary</h2>
+            <button
+              onClick={printFuelSummary}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg transition flex items-center gap-2 text-sm shadow"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+              </svg>
+              Print Fuel Summary
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full bg-white border border-gray-200">
+              <thead className="bg-gray-50">
+                <tr className="bg-gray-100">
+                  <th className="py-3 px-4 border-b text-left text-sm font-semibold text-gray-700">Vehicle Plate</th>
+                  <th className="py-3 px-4 border-b text-left text-sm font-semibold text-gray-700">Vehicle Type</th>
+                  <th className="py-3 px-4 border-b text-left text-sm font-semibold text-gray-700">Total Trips</th>
+                  <th className="py-3 px-4 border-b text-left text-sm font-semibold text-gray-700">Total Fuel Used (L)</th>
+                  <th className="py-3 px-4 border-b text-left text-sm font-semibold text-gray-700">Average Fuel Used (L)</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {fuelSummary.length > 0 ? (
+                  fuelSummary.map((vehicle, index) => (
+                    <tr key={index} className="hover:bg-gray-50 transition-colors">
+                      <td className="py-2 px-4 border-b text-sm">{vehicle.PlateNumber || "N/A"}</td>
+                      <td className="py-2 px-4 border-b text-sm">{vehicle.VehicleType || "N/A"}</td>
+                      <td className="py-2 px-4 border-b text-sm">{vehicle.TotalTrips || 0}</td>
+                      <td className="py-2 px-4 border-b text-sm">{vehicle.TotalFuelUsed ? `${vehicle.TotalFuelUsed} L` : "0.00 L"}</td>
+                      <td className="py-2 px-4 border-b text-sm">{vehicle.AverageFuelUsed ? `${vehicle.AverageFuelUsed} L` : "0.00 L"}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="5" className="py-8 px-4 text-center text-gray-500">
+                      No fuel usage records found
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
+      </div>
+
+      {/* Refresh Button */}
+      <div className="mt-6 flex justify-end">
+        <button
+          onClick={fetchReports}
+          className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition flex items-center gap-2 shadow"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+          </svg>
+          Refresh Reports
+        </button>
       </div>
     </div>
   );
